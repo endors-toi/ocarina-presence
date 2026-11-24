@@ -1,0 +1,17 @@
+bin/
+obj/
+.vs/
+*.user
+
+release/
+
+research/
+__pycache__/
+
+*.log
+*.zip
+OcarinaPresence.json
+
+.claude/
+docs/
+assets/
