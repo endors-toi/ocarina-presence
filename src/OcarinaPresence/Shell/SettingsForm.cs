@@ -15,10 +15,13 @@ public sealed class SettingsForm : Form
               slot_01
                 ...
 
-        Hookshot and Triforce keep it as user\save in the game folder,
-        or inside the folder given to --user. Emulators keep it under
-        their own data folder. Pick the save folder itself, not the
-        user folder above it.
+        Hookshot, Triforce, HeyListen, Project ReLink and Ocarina
+        Reborn keep it as user\save in the game folder, or inside the
+        folder given to --user. Longshot keeps it in its profile's
+        saves folder. NX2navi, NX2Saria and Rekarina keep it in the
+        profile folder beside the game. Emulators keep it under their
+        own data folder. Pick the save folder itself, not the user
+        folder above it.
 
         Ocarina Presence only reads caption.sav, progress.sav and
         option.sav. It never changes them.
@@ -36,6 +39,8 @@ public sealed class SettingsForm : Form
     readonly CheckBox _detectSaveFolder;
     readonly Label _noSave;
     readonly ToolTip _saveTip;
+    readonly Button _updateButton;
+    readonly Label _updateNote;
     readonly Font _bold;
     string _targetsKey = "";
     string _shownFolder = "";
@@ -45,7 +50,7 @@ public sealed class SettingsForm : Form
     public event Action? SettingsChanged;
     public event Action<bool>? StartWithWindowsChanged;
 
-    public SettingsForm(Config config, string status, Detection detected, bool detailsPending, Action openLog)
+    public SettingsForm(Config config, string status, Detection detected, bool detailsPending, UpdateState update, Action updateClicked, Action openLog)
     {
         _config = config;
         Text = "Ocarina Presence";
@@ -120,10 +125,18 @@ public sealed class SettingsForm : Form
         _startWithWindows = new CheckBox { Text = "Start Ocarina Presence with Windows", AutoSize = true, Checked = config.StartWithWindows };
         _startWithWindows.CheckedChanged += (_, _) => StartWithWindowsChanged?.Invoke(_startWithWindows.Checked);
         var checkForUpdates = Option("Check for updates automatically", config.CheckForUpdates, value => config.CheckForUpdates = value);
+        _updateButton = new Button { AutoSize = true, Anchor = AnchorStyles.Left };
+        _updateButton.Click += (_, _) => updateClicked();
+        _updateNote = new Label { AutoSize = true, ForeColor = SystemColors.GrayText, Anchor = AnchorStyles.Left };
+        var updateRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 3) };
+        updateRow.Controls.Add(_updateButton);
+        updateRow.Controls.Add(_updateNote);
+        ShowUpdate(update);
         _silencePort = Option("Hide Hookshot's own presence", config.SilencePortStatus, value => config.SilencePortStatus = value);
         var general = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0, 12, 0, 12) };
         general.Controls.Add(_startWithWindows);
         general.Controls.Add(checkForUpdates);
+        general.Controls.Add(updateRow);
         general.Controls.Add(_silencePort);
 
         var saveHeading = Heading("Save folder", new Padding(3, 0, 3, 3));
@@ -202,6 +215,13 @@ public sealed class SettingsForm : Form
     public void ShowStatus(string status) => _status.Text = status;
 
     public void ShowDetailsPending(bool pending) => _detailsPending.Visible = pending;
+
+    public void ShowUpdate(UpdateState state)
+    {
+        _updateButton.Text = state.Action;
+        _updateButton.Enabled = state.Enabled;
+        _updateNote.Text = state.Note;
+    }
 
     public void ShowDetected(Detection detected)
     {

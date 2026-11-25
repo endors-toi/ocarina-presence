@@ -35,19 +35,32 @@ public static class SaveFolders
             : exeDir;
     }
 
-    public static IEnumerable<string> UserSaveDirs(string exeDir, string? userFolder)
+    static IEnumerable<string> Existing(params string?[] dirs) =>
+        dirs.OfType<string>().Where(Directory.Exists).Distinct(StringComparer.OrdinalIgnoreCase);
+
+    public static IEnumerable<string> UserSaveDirs(PortLaunch launch)
     {
-        var save = Path.Combine(userFolder ?? Path.Combine(GameFolder(exeDir), "user"), "save");
-        if (Directory.Exists(save))
-            yield return save;
+        var game = GameFolder(launch.ExeDir);
+        return Existing(Path.Combine(launch.ArgumentPath("--user", game) ?? Path.Combine(game, "user"), "save"));
     }
 
-    public static IEnumerable<string> Nx2naviSaveDirs(string exeDir, string? userFolder)
+    public static IEnumerable<string> LongshotSaveDirs(PortLaunch launch)
     {
-        var profile = Path.Combine(exeDir, "profile");
-        if (Directory.Exists(profile))
-            yield return profile;
+        var game = GameFolder(launch.ExeDir);
+        if (launch.EnvironmentPath("LONGSHOT_PROFILE", game) is { } profile)
+            return Existing(Path.Combine(profile, "saves", "save"));
+        if (launch.ArgumentPath("--user", game) is { } user)
+            return Existing(Path.Combine(user, "save"));
+        return Existing(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Longshot", "save"),
+            Path.Combine(game, "user", "save"),
+            launch.Environment is null ? Path.GetFullPath(Path.Combine(game, "..", "..", "profile", "saves", "save")) : null);
     }
+
+    public static Func<PortLaunch, IEnumerable<string>> ProfileSaveDirs(string variable) => launch =>
+        Existing(launch.ArgumentPath("--profile", launch.ExeDir)
+            ?? launch.EnvironmentPath(variable, launch.ExeDir)
+            ?? Path.Combine(launch.ExeDir, "profile"));
 
     public static IEnumerable<FileInfo> Newest(IEnumerable<string> saveDirs, string fileName) =>
         saveDirs

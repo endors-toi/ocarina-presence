@@ -9,6 +9,8 @@ namespace OcarinaPresence;
 
 public sealed record UpdateInfo(Version Version, string Tag, string Url, string? Sha256);
 
+public sealed record UpdateState(string Action, bool Enabled, string Note);
+
 public sealed class Updater
 {
     const string Repo = "endors-toi/ocarina-presence";

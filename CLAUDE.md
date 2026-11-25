@@ -47,7 +47,8 @@ title. The window is what tells the game apart from a launcher or helper process
 **Reading the save.** The game's save files are key/value tables whose keys are murmur3 hashes of field names. The
 names come from the game's own scripts and data in its romfs. Location and stats come from the slot's `caption.sav`
 and `progress.sav`, boss defeats from `option.sav`. The newest slot written since the game started is the one shown.
-Each port and emulator keeps these files in its own place.
+Each port and emulator keeps these files in its own place. A port's place can be moved by its command line or by
+its environment, so both are read from the running game rather than assumed.
 
 **Hiding the port's own status.** A port that sends its own Discord status is silenced live: its Discord thread is
 paused only while it sleeps, and its Discord pipe handle is swapped for a dead pipe in the same handle slot. Leaving

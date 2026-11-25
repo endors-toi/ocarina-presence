@@ -19,7 +19,10 @@ public sealed class TrayApp : ApplicationContext
     readonly ToolStripMenuItem _updateItem;
     readonly System.Windows.Forms.Timer _updateTimer;
     UpdateInfo? _update;
+    UpdateState _updateState = new(CheckAction, true, VersionNote);
     bool _installing;
+    const string CheckAction = "Check for updates";
+    static readonly string VersionNote = $"Version {Updater.Current}";
     SettingsForm? _settings;
     string _status = "Starting…";
     Detection _detected = new("", Array.Empty<string>(), null, Array.Empty<string>(), null, true);
@@ -38,7 +41,7 @@ public sealed class TrayApp : ApplicationContext
         _startWithWindows = new ToolStripMenuItem("Start with Windows") { CheckOnClick = true, Checked = config.StartWithWindows };
         _startWithWindows.CheckedChanged += (_, _) => SetStartWithWindows(_startWithWindows.Checked);
 
-        _updateItem = new ToolStripMenuItem("Check for updates");
+        _updateItem = new ToolStripMenuItem(CheckAction);
         _updateItem.Click += (_, _) => _ = UpdateClicked();
 
         var menu = new ContextMenuStrip();
@@ -116,7 +119,7 @@ public sealed class TrayApp : ApplicationContext
             return;
         }
 
-        _settings = new SettingsForm(_config, _status, _detected, _detailsPending, () => Open(_log.Path));
+        _settings = new SettingsForm(_config, _status, _detected, _detailsPending, _updateState, () => _ = UpdateClicked(), () => Open(_log.Path));
         _settings.SettingsChanged += () =>
         {
             _enablePresence.Checked = _config.ShowPresence;
@@ -184,30 +187,49 @@ public sealed class TrayApp : ApplicationContext
 
     Task UpdateClicked() => _update is null ? CheckForUpdate(true) : InstallUpdate();
 
+    void ShowUpdate(UpdateState state)
+    {
+        _updateState = state;
+        _updateItem.Text = state.Action;
+        _updateItem.Enabled = state.Enabled;
+        _settings?.ShowUpdate(state);
+    }
+
+    void Notify(int timeout, string title, string text, ToolTipIcon icon)
+    {
+        if (_settings is null)
+            _icon.ShowBalloonTip(timeout, title, text, icon);
+    }
+
     async Task CheckForUpdate(bool manual)
     {
-        if (_installing || (_update is not null && !manual))
+        if (_installing || (_update is not null && !manual) || !_updateState.Enabled)
             return;
+        var before = _updateState;
+        if (manual)
+            ShowUpdate(new UpdateState("Checking…", false, VersionNote));
         try
         {
             var update = await _updater.CheckAsync();
             if (update is null)
             {
+                ShowUpdate(new UpdateState(CheckAction, true, $"{VersionNote} · up to date"));
                 if (manual)
-                    _icon.ShowBalloonTip(5000, "Ocarina Presence", "You're up to date.", ToolTipIcon.Info);
+                    Notify(5000, "Ocarina Presence", "You're up to date.", ToolTipIcon.Info);
                 return;
             }
             _update = update;
-            _updateItem.Text = $"Install update {update.Tag}";
+            ShowUpdate(new UpdateState($"Install update {update.Tag}", true, $"{VersionNote} · {update.Tag} is ready"));
             _log.Write($"Update {update.Tag} is available (running {Updater.Current}).");
             _icon.ShowBalloonTip(8000, "Ocarina Presence update available",
-                $"{update.Tag} is ready. Choose \"Install update\" in the tray menu.", ToolTipIcon.Info);
+                $"{update.Tag} is ready. Choose \"Install update\" in the tray menu or in Settings.", ToolTipIcon.Info);
         }
         catch (Exception e)
         {
             _log.Write($"Update check failed: {e.Message}");
+            ShowUpdate(manual ? new UpdateState(CheckAction, true, $"{VersionNote} · couldn't check for updates") : before);
             if (manual)
-                _icon.ShowBalloonTip(5000, "Ocarina Presence", "Couldn't check for updates.", ToolTipIcon.Warning);
+                Notify(5000, "Ocarina Presence", "Couldn't check for updates.", ToolTipIcon.Warning);
         }
     }
 
@@ -216,8 +238,7 @@ public sealed class TrayApp : ApplicationContext
         if (_installing || _update is null)
             return;
         _installing = true;
-        _updateItem.Enabled = false;
-        _updateItem.Text = "Downloading update…";
+        ShowUpdate(new UpdateState("Downloading update…", false, $"{VersionNote} · installing {_update.Tag}"));
         try
         {
             _log.Write($"Installing update {_update.Tag}.");
@@ -228,9 +249,8 @@ public sealed class TrayApp : ApplicationContext
         {
             _log.Write($"Update failed: {e.Message}");
             _installing = false;
-            _updateItem.Enabled = true;
-            _updateItem.Text = $"Install update {_update.Tag}";
-            _icon.ShowBalloonTip(5000, "Ocarina Presence", "The update failed. Nothing was changed.", ToolTipIcon.Warning);
+            ShowUpdate(new UpdateState($"Install update {_update.Tag}", true, "The update failed. Nothing was changed."));
+            Notify(5000, "Ocarina Presence", "The update failed. Nothing was changed.", ToolTipIcon.Warning);
         }
     }
 

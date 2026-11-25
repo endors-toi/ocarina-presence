@@ -5,9 +5,16 @@ namespace OcarinaPresence;
 static class PortNative
 {
     const uint ThreadSuspendResume = 0x2, ThreadGetContext = 0x8, ThreadQuery = 0x40, ThreadQueryLimited = 0x800;
-    const uint ProcessDupHandle = 0x40, ProcessQuery = 0x400, ProcessQueryLimited = 0x1000;
+    const uint ProcessVmRead = 0x10, ProcessDupHandle = 0x40, ProcessQuery = 0x400, ProcessQueryLimited = 0x1000;
     const uint DuplicateCloseSource = 0x1, DuplicateSameAccess = 0x2;
     const int StillActive = 259;
+    const int ProcessBasicInformation = 0;
+    const int ProcessBasicInformationSize = 48;
+    const int PebOffset = 8;
+    const int PebParametersOffset = 0x20;
+    const int ParametersEnvironmentOffset = 0x80;
+    const int ParametersEnvironmentSizeOffset = 0x3F0;
+    const int EnvironmentLimit = 1 << 20;
     const int ProcessHandleInformation = 51;
     const int ProcessCommandLineInformation = 60;
     const int ThreadWin32StartAddress = 9;
@@ -34,6 +41,7 @@ static class PortNative
     [DllImport("ntdll")] static extern int NtQueryObject(IntPtr handle, int cls, IntPtr buffer, int length, out int returned);
     [DllImport("kernel32", SetLastError = true)] static extern IntPtr OpenThread(uint access, bool inherit, int id);
     [DllImport("kernel32", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, int id);
+    [DllImport("kernel32", SetLastError = true)] static extern bool ReadProcessMemory(IntPtr process, IntPtr address, byte[] buffer, IntPtr size, out IntPtr read);
     [DllImport("kernel32", SetLastError = true)] static extern bool DuplicateHandle(IntPtr sourceProcess, IntPtr source, IntPtr targetProcess, out IntPtr target, uint access, bool inherit, uint options);
     [DllImport("kernel32")] static extern IntPtr GetCurrentProcess();
     [DllImport("kernel32")] static extern bool CloseHandle(IntPtr handle);
@@ -81,6 +89,56 @@ static class PortNative
         {
             CloseHandle(process);
         }
+    }
+
+    public static Dictionary<string, string>? Environment(int processId)
+    {
+        var process = OpenProcess(ProcessQueryLimited | ProcessVmRead, false, processId);
+        if (process == IntPtr.Zero)
+            return null;
+        try
+        {
+            var info = Marshal.AllocHGlobal(ProcessBasicInformationSize);
+            IntPtr peb;
+            try
+            {
+                if (NtQueryInformationProcess(process, ProcessBasicInformation, info, ProcessBasicInformationSize, out _) != 0)
+                    return null;
+                peb = Marshal.ReadIntPtr(info, PebOffset);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(info);
+            }
+            if (ReadPointer(process, peb + PebParametersOffset) is not { } parameters
+                || ReadPointer(process, parameters + ParametersEnvironmentOffset) is not { } block
+                || ReadPointer(process, parameters + ParametersEnvironmentSizeOffset) is not { } size
+                || size.ToInt64() <= 0 || size.ToInt64() > EnvironmentLimit)
+                return null;
+            var bytes = new byte[size.ToInt64()];
+            if (!ReadProcessMemory(process, block, bytes, size, out _))
+                return null;
+            var variables = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in System.Text.Encoding.Unicode.GetString(bytes).Split('\0'))
+            {
+                var equals = entry.Length > 1 ? entry.IndexOf('=', 1) : -1;
+                if (equals > 0)
+                    variables.TryAdd(entry[..equals], entry[(equals + 1)..]);
+            }
+            return variables;
+        }
+        finally
+        {
+            CloseHandle(process);
+        }
+    }
+
+    static IntPtr? ReadPointer(IntPtr process, IntPtr address)
+    {
+        var buffer = new byte[IntPtr.Size];
+        return address != IntPtr.Zero && ReadProcessMemory(process, address, buffer, IntPtr.Size, out _)
+            ? new IntPtr(BitConverter.ToInt64(buffer))
+            : null;
     }
 
     static string[]? Arguments(string commandLine)

@@ -15,12 +15,12 @@ A Windows tray app. It reads the game's own save files, never its memory, and ne
 - Hides a port's own Discord status while yours is showing
 - Lets you pick which game to show when more than one is open
 - Rests in the tray and can start with Windows
-- Checks GitHub for new releases and updates itself when you say so
+- Checks GitHub for new releases, from the tray or Settings, and updates itself when you say so
 
 ## Supported games
 
 - Switch emulators: Fritchii, Lichii, Eden and their forks
-- PC ports: Hookshot, Triforce, NX2navi
+- PC ports: Hookshot, Longshot, HeyListen, Triforce, Project ReLink, Ocarina Reborn, NX2navi, NX2Saria, Rekarina
 
 ## Requirements
 

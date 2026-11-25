@@ -34,7 +34,7 @@ public sealed class PresenceService
     DateTime _sessionStart;
     DateTime _emulatorStart;
     bool _firstTick = true;
-    readonly Dictionary<int, string?> _userFolders = new();
+    readonly Dictionary<int, PortLaunch> _launches = new();
     string? _saveDirsKey;
 
     public event Action<string>? StatusChanged;
@@ -91,8 +91,8 @@ public sealed class PresenceService
         var games = _finder.Find(seen);
         try
         {
-            foreach (var pid in _userFolders.Keys.Where(pid => games.All(g => g.Process.Id != pid)).ToList())
-                _userFolders.Remove(pid);
+            foreach (var pid in _launches.Keys.Where(pid => games.All(g => g.Process.Id != pid)).ToList())
+                _launches.Remove(pid);
             Game? shown = games.Count == 0 ? null : games[Math.Max(0, games.FindIndex(g => g.Name == _config.Target))];
             var detected = shown is { } game ? SaveDirs(game) : Array.Empty<string>();
             var saveDirs = EffectiveSaveDirs(detected);
@@ -131,7 +131,7 @@ public sealed class PresenceService
         }
 
         var game = found.Process;
-        _port.Apply(game, _config.SilencePortStatus ? found.Port : null);
+        _port.Apply(game, _config.SilencePortStatus && found.Port is { OwnPresence: true } ? found.Port : null);
         if (game.Id != _sessionPid)
         {
             _sessionPid = game.Id;
@@ -213,7 +213,7 @@ public sealed class PresenceService
         };
         var targets = games.Select(g => g.Name).Distinct().ToArray();
         var target = shown?.Name;
-        var ports = games.Where(g => g.Port is not null).Select(g => g.Name).Distinct().ToArray();
+        var ports = games.Where(g => g.Port is { OwnPresence: true }).Select(g => g.Name).Distinct().ToArray();
         var detection = new Detection(text, targets, target, ports, saveFolder, saveFound);
         var key = $"{text}|{string.Join(",", targets)}|{target}|{string.Join(",", ports)}|{saveFolder}|{saveFound}";
         if (key == _detectedKey)
@@ -224,7 +224,7 @@ public sealed class PresenceService
 
     IReadOnlyCollection<string> SaveDirs(Game game) =>
         (game.Port is { } port && game.ExeDir is not null
-            ? port.SaveDirs(game.ExeDir, port.ReadsUserArgument ? UserFolder(game.Process, port, game.ExeDir) : null)
+            ? port.SaveDirs(Launch(game.Process, port, game.ExeDir))
             : SaveFolders.EmulatorSaveDirs(game.ExeDir, _config.TitleId)).ToList();
 
     IReadOnlyCollection<string> EffectiveSaveDirs(IReadOnlyCollection<string> detected)
@@ -256,38 +256,17 @@ public sealed class PresenceService
             : "No save folder found yet.");
     }
 
-    string? UserFolder(Process process, Port port, string exeDir)
+    PortLaunch Launch(Process process, Port port, string exeDir)
     {
-        if (_userFolders.TryGetValue(process.Id, out var folder))
-            return folder;
+        if (_launches.TryGetValue(process.Id, out var launch) && launch.ExeDir == exeDir)
+            return launch;
         var arguments = PortNative.CommandLine(process.Id);
-        if (arguments is null)
-            _log.Write($"Could not read {port.Name}'s command line; looking for saves in the game folder.");
-        else if (UserArgument(arguments) is { } user)
-            folder = FullPath(user, SaveFolders.GameFolder(exeDir));
-        _userFolders[process.Id] = folder;
-        return folder;
-    }
-
-    static string? UserArgument(string[] arguments)
-    {
-        string? user = null;
-        for (var i = 1; i + 1 < arguments.Length; i++)
-            if (arguments[i] == "--user")
-                user = arguments[i + 1];
-        return user;
-    }
-
-    static string? FullPath(string path, string basePath)
-    {
-        try
-        {
-            return Path.GetFullPath(path, basePath);
-        }
-        catch
-        {
-            return null;
-        }
+        var environment = PortNative.Environment(process.Id);
+        if (arguments is null || environment is null)
+            _log.Write($"Could not read {port.Name}'s {(arguments is null ? "command line" : "environment")}; looking for saves in its usual places.");
+        launch = new PortLaunch(exeDir, arguments, environment);
+        _launches[process.Id] = launch;
+        return launch;
     }
 
     Location? CurrentLocation(IReadOnlyCollection<string> saveDirs)
